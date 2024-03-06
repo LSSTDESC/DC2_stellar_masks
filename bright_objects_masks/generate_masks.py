@@ -7,12 +7,11 @@ import healpy as hp
 from astropy.io import fits
 import radius_study
 import call_dc2
+import yaml
+import os
 
-class masks:
-    def __init__(self, name='dc2_object_run2.2i_dr6_v2_with_addons_v2', theta_bins = np.logspace(np.log10(0.5),np.log10(50), 50), tract_list = None, 
-                        quantities = ['ra','dec','mag_i_cModel'], conditions=None, conditions_galaxies=["extendedness==1", "mag_i_cModel>17", "mag_i_cModel<25.3"], 
-                        conditions_stars=["extendedness==0"], binned_quantity="mag_i_cModel", bins=[0, 17, 18, 20, 22, 24], density_ratio = None, critical_density = 0.9,
-                        nside_coverage = 32, nside_sparse = 131072):
+class Masks:
+    def __init__(self, config_file = os.path.dirname(__file__)+'/../config/config.yaml', tract_list=None, density_ratio = None):
         """__init__
 
         Parameters
@@ -44,29 +43,32 @@ class masks:
         nside_sparse : int, optional
             Resolution parameter of sparse healsparse map, by default 131072
         """        
-        self.name = name
-        self.theta_bins = theta_bins
+        self.config_file = config_file
+        with open(self.config_file,'r') as f:
+            output = yaml.safe_load(f)
+        self.name = output.get('name')
+        self.openDC2 = call_dc2.OpenDC2(name=self.name)
+        self.theta_bins = np.array(output.get('theta_bins'))
         self.tract_list = tract_list
-        self.quantities = quantities
-        self.conditions = conditions
-        self.conditions_galaxies = conditions_galaxies
-        self.conditions_stars = conditions_stars
-        self.binned_quantity = binned_quantity
-        self.bins = bins
+        self.quantities = output.get('quantities')
+        self.conditions = output.get('conditions')
+        self.conditions_galaxies = output.get('conditions_galaxies')
+        self.conditions_stars = output.get('conditions_stars')
+        self.binned_quantity = output.get('binned_quantity')
+        self.bins = output.get('bins')
         self.density_ratio = density_ratio
-        self.critical_density = critical_density
-        critical_radius = radius_study.critical_radius(name=self.name, theta_bins=self.theta_bins, tract_list=self.tract_list, quantities=self.quantities, conditions=self.conditions, conditions_galaxies=self.conditions_galaxies, conditions_stars=self.conditions_stars, binned_quantity=self.binned_quantity,bins=self.bins)
+        self.critical_density = output.get('critical_density')
+        critical_radius = radius_study.Critical_radius(name=self.name, theta_bins=self.theta_bins, tract_list=self.tract_list, quantities=self.quantities, conditions=self.conditions, conditions_galaxies=self.conditions_galaxies, conditions_stars=self.conditions_stars, binned_quantity=self.binned_quantity,bins=self.bins)
         self.radius = critical_radius.get_critical_radius(density_ratio = self.density_ratio, critical_density=self.critical_density)
-        self.nside_coverage = nside_coverage
-        self.nside_sparse = nside_sparse
-        self.openDC2 = call_dc2.openDC2(name=self.name)
+        self.nside_coverage = output.get('nside_coverage')
+        self.nside_sparse = output.get('nside_sparse')
         if self.tract_list is None:
             self.galaxies = self.openDC2.galaxies(quantities=self.quantities, conditions=self.conditions, conditions1=self.conditions_galaxies)
             self.stars = self.openDC2.stars(quantities=self.quantities, conditions=self.conditions, conditions1=self.conditions_stars)
         else :
             self.galaxies = self.openDC2.galaxies(quantities=self.quantities, conditions=self.conditions, conditions1=self.conditions_galaxies, tract_list = tract_list)
             self.stars_cat = self.openDC2.stars(quantities=self.quantities, conditions=self.conditions, conditions1=self.conditions_stars, tract_list = tract_list)
-        if binned_quantity is None:
+        if self.binned_quantity is None:
             self.stars = [self.stars_cat]
         else : 
             self.stars = self.openDC2.bin_cat(self.stars_cat, quantities=self.binned_quantity, bins=self.bins)

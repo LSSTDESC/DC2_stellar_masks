@@ -1,12 +1,15 @@
 from astropy.table import Table, vstack
 import numpy as np
 import matplotlib.pyplot as plt
+import multiprocessing
 import time
 import pickle
 import sys
 import call_dc2
+sys.path.append('_multiprocessing')
+from _mprocessing.s_multiprocessing import Multiprocessing
 ### This one is highly recommended to be parallelized
-class compute_density:
+class Calculate_density:
     """ Class internally used for computations """    
 
     def __init__(self, galaxies_tract, galaxies_tract_neighbours, stars):
@@ -75,8 +78,8 @@ class compute_density:
         """        
         return np.pi*(theta**2)*np.sin(np.radians(90-dec))
     
-    def _tract_surface_trapeze(self):
-        """_tract_surface_trapeze computes the surface of one tract with the assumption that it's a trapeze
+    def _surface_trapeze(self):
+        """_surface_trapeze computes the surface of one tract with the assumption that it's a trapeze
 
         Returns
         -------
@@ -108,11 +111,11 @@ class compute_density:
         """        
         tract_galaxies = self.galaxies_tract
         galaxies_number = len(tract_galaxies["ra"])
-        tract_density = galaxies_number/self._tract_surface_trapeze()
+        tract_density = galaxies_number/self._surface_trapeze()
         return tract_density
 
-    def get_density_tract_star_bin(self, theta_bins = np.logspace(np.log10(0.5),np.log10(50), 50)):
-        """get_density_tract_star_bin gives density(r) around bright stars in one tract, good practice is to give it magnitude binned stars
+    def get_density_around_stars(self, theta_bins = np.logspace(np.log10(0.5),np.log10(50), 50)):
+        """get_density_around_stars gives density(r) around bright stars in one tract, good practice is to give it magnitude binned stars
 
         Parameters
         ----------
@@ -136,8 +139,8 @@ class compute_density:
         number_stars = len(self.stars["ra"])
         density = sum_density/number_stars #Mean density over stars
         return density
-
-class critical_radius:
+   
+class Critical_radius:
     def __init__(self, name='dc2_object_run2.2i_dr6_v2_with_addons_v2', theta_bins = np.logspace(np.log10(0.5),np.log10(50), 50), tract_list = None, quantities = ['ra','dec','mag_i_cModel'], conditions=None, conditions_galaxies=["extendedness==1", "mag_i_cModel>17", "mag_i_cModel<25.3"], conditions_stars=["extendedness==0"], binned_quantity="mag_i_cModel", bins=[0, 17, 18, 20, 22, 24]):
         """__init__ Here we look for the radius of the circle area we'll mask around each bright star
 
@@ -163,7 +166,7 @@ class critical_radius:
             Bins of 'quantities', by default [0, 17, 18, 20, 22, 24]
         """        
         self.name = name
-        self.openDC2 = call_dc2.openDC2(name=self.name)
+        self.openDC2 = call_dc2.OpenDC2(name=self.name)
         self.theta_bins = theta_bins
         if tract_list is None:
             self.tract_list = [5074, 5073, 5072, 5071, 5070, 5069, 5068, 5067, 5066, 5065, 4860, 4859, 4858, 4857, 4856, 4855, 4854, 4853, 4852, 4851, 
@@ -182,37 +185,45 @@ class critical_radius:
         self.conditions_stars = conditions_stars
         self.binned_quantity = binned_quantity
         self.bins = bins
-
-    def density_glob_star_bin(self):
-        """density_glob_star_bin calculates density_ratio(r) for each bin of stars
-
-        Returns
-        -------
-        array
-            density_ratio(r) for each bin of stars
-        """        
+            
+    def _open_catalogs(self, tract):
         if self.binned_quantity is None:
             self.bins = [0]
+        galaxies = self.openDC2.galaxies(self.quantities, self.conditions, self.conditions_galaxies, tract)
+        galaxies_neighbour = self.openDC2.galaxies_with_neighbours_tracts(self.quantities, self.conditions, self.conditions_galaxies, tract)
+        stars = self.openDC2.stars(self.quantities, self.conditions, self.conditions_stars, tract)
+        if len(self.bins)>1:
+            stars = self.openDC2.bin_cat(stars, quantities=self.binned_quantity, bins=self.bins)
+        return galaxies, galaxies_neighbour, stars
+    
+    def _compute_density_ratio(self, galaxies, galaxies_neighbour, stars):
         density_tracts, number_galaxies, tract_density = np.zeros((len(self.bins)-1,len(self.theta_bins))), 0, 0
-        for tract in self.tract_list:
-            galaxies = self.openDC2.galaxies(quantities=self.quantities, conditions=self.conditions, conditions1=self.conditions_galaxies, tract_list=tract)
-            galaxies_neighbour = self.openDC2.galaxies(quantities=self.quantities, conditions=self.conditions, conditions1=self.conditions_galaxies, tract_list=tract)
-            stars = self.openDC2.stars(quantities=self.quantities, conditions=self.conditions, conditions1=self.conditions_stars, tract_list=tract)
-            if len(self.bins)>1:
-                stars = self.openDC2.bin_cat(stars, quantities=self.binned_quantity, bins=self.bins)
-            else : 
-                stars = [stars]
-            for i in range(len(stars)):
-                compute_density_ = compute_density(galaxies, galaxies_neighbour, stars[i])
-                print(compute_density_)
-                density_tracts[i] += compute_density_.get_density_tract_star_bin(theta_bins=self.theta_bins)
-            number_galaxies += len(galaxies['ra'])
-            tract_density += compute_density_._tract_density()
-        density = density_tracts/len(self.tract_list)
-        density_dc2 = tract_density/len(self.tract_list)
+        for i in range(len(stars)):
+            compute_density_ = Calculate_density(galaxies, galaxies_neighbour, stars[i])
+            print(compute_density_)
+            density_tracts[i] += compute_density_.get_density_around_stars(theta_bins=self.theta_bins)
+        number_galaxies += len(galaxies['ra'])
+        tract_density += compute_density_._tract_density()
+        density = density_tracts
+        density_dc2 = tract_density
         density_ratio = density/density_dc2
         return density_ratio
+
+    def get_tract_density_ratio(self, tract):
+        galaxies, galaxies_neighbour, stars = self._open_catalogs(tract = tract)
+        print(galaxies, galaxies_neighbour, stars)
+        density_ratio = self._compute_density_ratio(galaxies, galaxies_neighbour, stars)
+        return density_ratio
     
+    def get_density_ratio(self):
+        if len(self.tract_list)>1:
+            mpc = Multiprocessing(tract_list=self.tract_list)
+            density_ratios = mpc.slurm_submit()
+            density_ratio = np.mean(density_ratios, axis=0)
+        else :
+            density_ratio = self.get_tract_density_ratio(self.tract_list)
+        return density_ratio
+
     def get_critical_radius(self, density_ratio=None, critical_density = 0.9):
         """get_critical_radius gets the radius for which to cut for to get a density ratio > critical_density around each bright star
 
@@ -229,9 +240,11 @@ class critical_radius:
             radius to cut for each bin of star
         """        
         if density_ratio is None:
-            density_ratio = self.density_glob_star_bin()
+            density_ratio = self.get_density_ratio()
         if self.binned_quantity is None:
             critical_radius_value = round(self.theta_bins[np.where(density_ratio>=critical_density)[0]],2)
         else : 
             critical_radius_value = [round(self.theta_bins[np.where(density_ratio[i]>=critical_density)[0][0]],2) for i in range(len(self.bins)-1)]
         return critical_radius_value
+    
+    

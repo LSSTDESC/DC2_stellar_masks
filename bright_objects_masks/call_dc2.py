@@ -8,7 +8,7 @@ import sys
 Errors gestion to be implemented
 put API to describe funcs and variable roles
 """
-class openDC2:
+class OpenDC2:
     
     def __init__(self, name='dc2_object_run2.2i_dr6_v2_with_addons_v2'):
         """__init__
