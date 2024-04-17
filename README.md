@@ -10,3 +10,5 @@ Here we use the results from 2) and the catalog from 1) to generate a healsparse
 
 ##Requirements:
 Healsparse v1.9.0
+
+[![DOI](https://zenodo.org/badge/759888613.svg)](https://zenodo.org/doi/10.5281/zenodo.10986498)
