@@ -5,4 +5,4 @@ __pycache__/
 .ipynb_checkpoints/*
 __pycache__/*
 *.out
-/logs
+bright_objects_masks/_mprocessing/logs
