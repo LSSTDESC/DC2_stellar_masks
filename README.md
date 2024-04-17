@@ -4,7 +4,7 @@
 This package was developped in the need to construct masks that covers regions where high luminosity of stars affects detected objects and the images in the DC2 context.
 This work is highly based on Zilong Du's work during [his thesis](https://escholarship.org/uc/item/0tk4181k), but also on [HSC SSP article](https://academic.oup.com/pasj/article/doi/10.1093/pasj/psx047/4004646).
 
-## It is subdivised in 3 modules :
+## It is subdivided in 3 modules :
 ### I) call_dc2
 It opens the sample you want based on 
 - the name of the catalog you ask for (must be a Catalog avaible in GCR except for the bin_star method which only require a catalog).
