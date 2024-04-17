@@ -3,7 +3,9 @@ message: "If you use this software, please cite it as below."
 authors:
 - family-names: Amouroux 
   given-names: Nathan
-orcid: https://orcid.org/0009-0006-8186-0652
-title:LSSTDESC/DC2_stellar_masks: First DC2 stellar objects release
+  orcid: https://orcid.org/0009-0006-8186-0652
+title: "LSSTDESC/DC2_stellar_masks: First DC2 stellar objects release"
 version: v1.0.0
+doi: 1.5281/zenodo.10986499
 date-released: 2024-04-17
+url: "https://github.com/LSSTDESC/DC2_stellar_masks/"
