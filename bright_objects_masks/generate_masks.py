@@ -13,10 +13,7 @@ import os
 
 class Masks:
     def __init__(
-        self,
-        config_file=os.path.dirname(__file__) + "/../config/config.yaml",
-        tract_list=None,
-        density_ratio=None,
+        self, config_file=os.path.dirname(__file__) + "/../config/config.yaml"
     ):
         """__init__
 
@@ -52,41 +49,51 @@ class Masks:
         self.config_file = config_file
         with open(self.config_file, "r") as f:
             output = yaml.safe_load(f)
+        self.unique_stars = output.get("unique_stars")
+        self.outpath = output.get("outpath")
+        critical_radius = radius_study.Critical_radius(self.config_file)
+        self.density_ratio = output.get("density_ratio")
+        self.critical_density = output.get("critical_density")
+        self.theta_bins = np.array(output.get("theta_bins"))
+        if not self.unique_stars:
+            print("\nDoing nominal processing : binned stars")
+            self.radius = critical_radius.get_critical_radius(
+                density_ratio=self.density_ratio,
+                critical_density=self.critical_density,
+                theta_bins=self.theta_bins,
+            )
+        else:
+            print("\nDoing masks for single stars.")
+            self.ra, self.dec, self.radius = critical_radius.get_unique_critical_radius(
+                critical_density=self.critical_density, theta_bins=self.theta_bins
+            )
+
         self.name = output.get("name")
         self.openDC2 = call_dc2.OpenDC2(name=self.name)
-        self.theta_bins = np.array(output.get("theta_bins"))
-        self.tract_list = tract_list
+        self.tract_list = output.get("tract_list")
         self.quantities = output.get("quantities")
         self.conditions = output.get("conditions")
         self.conditions_galaxies = output.get("conditions_galaxies")
         self.conditions_stars = output.get("conditions_stars")
         self.binned_quantity = output.get("binned_quantity")
         self.bins = output.get("bins")
-        self.density_ratio = density_ratio
-        self.critical_density = output.get("critical_density")
-        critical_radius = radius_study.Critical_radius(
-            name=self.name,
-            theta_bins=self.theta_bins,
-            tract_list=self.tract_list,
-            quantities=self.quantities,
-            conditions=self.conditions,
-            conditions_galaxies=self.conditions_galaxies,
-            conditions_stars=self.conditions_stars,
-            binned_quantity=self.binned_quantity,
-            bins=self.bins,
-        )
-        self.radius = critical_radius.get_critical_radius(
-            density_ratio=self.density_ratio, critical_density=self.critical_density
-        )
         self.nside_coverage = output.get("nside_coverage")
         self.nside_sparse = output.get("nside_sparse")
+        cdt_nan, cdt2 = False, []
+        for cdt in self.conditions_stars:
+            if "nan" in cdt:
+                cdt_nan = True
+                var_nan = cdt.split(".")[-1]
+            else:
+                cdt2.append(cdt)
+        self.conditions_stars = cdt2
         if self.tract_list is None:
             self.galaxies = self.openDC2.galaxies(
                 quantities=self.quantities,
                 conditions=self.conditions,
                 conditions1=self.conditions_galaxies,
             )
-            self.stars = self.openDC2.stars(
+            self.stars_cat = self.openDC2.stars(
                 quantities=self.quantities,
                 conditions=self.conditions,
                 conditions1=self.conditions_stars,
@@ -96,14 +103,16 @@ class Masks:
                 quantities=self.quantities,
                 conditions=self.conditions,
                 conditions1=self.conditions_galaxies,
-                tract_list=tract_list,
+                tract_list=self.tract_list,
             )
             self.stars_cat = self.openDC2.stars(
                 quantities=self.quantities,
                 conditions=self.conditions,
                 conditions1=self.conditions_stars,
-                tract_list=tract_list,
+                tract_list=self.tract_list,
             )
+        if cdt_nan:
+            self.stars_cat = self.stars_cat[np.isnan(self.stars_cat[f"{var_nan}"])]
         if self.binned_quantity is None:
             self.stars = [self.stars_cat]
         else:
@@ -130,15 +139,30 @@ class Masks:
             value=False,
         )
         healsparse_masks &= polygon
-        for i in range(len(self.stars)):
-            stars = self.stars[i]
-            radius = self.radius[i]
-            print(len(stars))
-            for star in stars:
-                circle = hsp.Circle(
-                    ra=star["ra"], dec=star["dec"], radius=radius / 3600, value=True
-                )  # radius value in degrees
-                healsparse_masks |= circle
+        print("\nNow adding masked regions to healsparse map.")
+        if not self.unique_stars:
+            print("\nSelected binned stars")
+            for i in range(len(self.stars)):
+                stars = self.stars[i]
+                radius = self.radius[i]
+                for star in stars:
+                    circle = hsp.Circle(
+                        ra=star["ra"], dec=star["dec"], radius=radius / 3600, value=True
+                    )  # radius value in degrees
+                    healsparse_masks |= circle
+        else:
+            print("\nSelected single stars.")
+            for i in range(len(self.ra)):
+                if (
+                    self.radius[i] != 0
+                ):  # Veto for stars where density doesn't go up to 0.9
+                    circle = hsp.Circle(
+                        ra=self.ra[i],
+                        dec=self.dec[i],
+                        radius=self.brightest_radius[i] / 3600,
+                        value=True,
+                    )
+                    healsparse_masks |= circle
         return healsparse_masks
 
     def write_heaslparse_mask(self, healsparse_masks, outpath=None):
@@ -155,7 +179,7 @@ class Masks:
         -------
         """
         if outpath is None:
-            outpath = f"bo_masks_{self.tract_list}.hs"
+            outpath = self.outpath + f"bo_masks.hs"
         healsparse_masks.write(outpath, clobber=True)
         return None
 
@@ -222,7 +246,7 @@ class Masks:
             value of each healpix pixel
         """
         if outpath is None:
-            outpath = f"bo_masks_{self.tract_list}.fits"
+            outpath = self.outpath + f"bo_masks_healpix.fits"
         hp_map = Table({"mask": hp_map})
         hp_map["mask_bool"] = 1
         hp_map["mask_bool"][

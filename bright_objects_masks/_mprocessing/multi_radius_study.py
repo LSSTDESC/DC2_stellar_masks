@@ -2,35 +2,23 @@ import sys
 
 sys.path.append("../")
 import radius_study
-import yaml
 import numpy as np
-import os
+import pickle
 
-outpath = os.path.dirname(__file__) + "/logs/"
-
-tract, config_file = sys.argv[1], sys.argv[2]
-
-with open(config_file, "r") as f:
-    output = yaml.safe_load(f)
-name = output.get("name")
-theta_bins = np.array(output.get("theta_bins"))
-quantities = output.get("quantities")
-conditions = output.get("conditions")
-conditions_galaxies = output.get("conditions_galaxies")
-conditions_stars = output.get("conditions_stars")
-binned_quantity = output.get("binned_quantity")
-bins = output.get("bins")
-
-critical_radius = radius_study.Critical_radius(
-    name=name,
-    theta_bins=theta_bins,
-    tract_list=tract,
-    quantities=quantities,
-    conditions=conditions,
-    conditions_galaxies=conditions_galaxies,
-    conditions_stars=conditions_stars,
-    binned_quantity=binned_quantity,
-    bins=bins,
+tract, config_file, outpath, unique = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+print(
+    f"\nProcessing tract = {tract},\nWith config file at {config_file},\nSaving at {outpath}\nProcessing by stars : {unique}.\n"
 )
-density_ratio = critical_radius.get_tract_density_ratio(tract=tract)
-np.savetxt(outpath + f"{tract}_density_ratio.txt", density_ratio)
+
+critical_radius = radius_study.Critical_radius(config_file=config_file)
+if eval(unique):
+    print("\nInitialization of processing by star.\n")
+    ra, dec, density_ratio = critical_radius.get_unique_tract_density_ratio(tract=tract)
+    results = {"ra": ra, "dec": dec, "density_ratio": density_ratio}
+    with open(outpath + f"{tract}_density_ratio_unique.pickle", "wb") as handle:
+        pickle.dump(results, handle)
+else:
+    print("\nInitialization of processing by bins.\n")
+    density_ratio = critical_radius.get_tract_density_ratio(tract=tract)
+    print(f"\nResult of processing for tract {tract} : \n{density_ratio}.\n")
+    np.savetxt(outpath + f"{tract}_density_ratio.txt", density_ratio)

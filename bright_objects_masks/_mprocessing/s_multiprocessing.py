@@ -4,16 +4,19 @@ import os
 import sys
 
 sys.path.append("../")
-import call_dc2
 import numpy as np
 import yaml
+import pickle
 
 current_dir = os.path.dirname(__file__)
 
 
 class Multiprocessing:
     def __init__(
-        self, config_file=f"{current_dir}/../../config/config.yaml", tract_list=None
+        self,
+        config_file=f"{current_dir}/../../config/config.yaml",
+        tract_list=None,
+        unique=False,
     ):
         """__init__ class which submit slurm job to produce masks (in particular for density ratio computation)
 
@@ -27,16 +30,10 @@ class Multiprocessing:
         self.config_file = config_file
         with open(self.config_file, "r") as f:
             output = yaml.safe_load(f)
-        self.name = output.get("name")
-        self.openDC2 = call_dc2.OpenDC2(name=self.name)
         self.theta_bins = np.array(output.get("theta_bins"))
-        self.tract_list = tract_list
-        self.quantities = output.get("quantities")
-        self.conditions = output.get("conditions")
-        self.conditions_galaxies = output.get("conditions_galaxies")
-        self.conditions_stars = output.get("conditions_stars")
-        self.binned_quantity = output.get("binned_quantity")
         self.bins = output.get("bins")
+        self.tract_list = tract_list
+        self.unique = unique
 
     def _mkdir(self, dir):
         if not os.path.exists(dir):
@@ -62,26 +59,53 @@ class Multiprocessing:
     def slurm_submit(
         self, func_name="multi_radius_study", outpath=current_dir + "/logs/"
     ):
-        slurm_mem = 64
+        slurm_mem = 149
         res, job_list, slurm_output_path_list = [], [], []
+        if outpath is None:
+            outpath = current_dir + "/logs/"
         self._mkdir(outpath)
+        print("\nNow submitting jobs for multiprocessing.\n")
         for tract in self.tract_list:
             slurm_output_path = f"{outpath}{func_name}_{tract}.out"
             slurm_output_path_list.append(slurm_output_path)
-            cmd = f"sbatch --job-name=submit_func_{func_name}_{tract} -t  0-15:00 -n 2 --mem {slurm_mem}G -D {current_dir} -L sps -o {slurm_output_path} <<?\n"
+            cmd = f"sbatch --job-name=submit_func_{func_name}_{tract} -t  0-15:00 -n 2 --mem {slurm_mem}G --partition lsst,htc -D {current_dir} -L sps -o {slurm_output_path} <<?\n"
             cmd += "#!/usr/bin/bash\n"
             cmd += f"source /pbs/throng/lsst/software/desc/common/miniconda/setup_current_python.sh\n"
             cmd += f"conda activate /sps/lsst/users/namourou/conda_envs/conda_clone_021023/desc_v0/\n"
-            cmd += f"python {current_dir}/{func_name}.py {tract} {self.config_file}"
+            cmd += f"python {current_dir}/{func_name}.py {tract} {self.config_file} {outpath} {self.unique}"
             res = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, check=True
             )
-            job_id = str(res.stdout).split("batch job ")[1].split("\\")[0]
+            job_id = str(res.stdout).split("batch job")[1].split("\\")[0]
             job_list.append(job_id.split("\n")[0])
-        result = np.zeros(
-            (len(self.tract_list), len(self.bins) - 1, len(self.theta_bins))
-        )  # create empty arry to store results
+        if not self.unique:
+            print("\nUsing nominal processing.\n")
+            result = np.zeros(
+                (len(self.tract_list), len(self.bins) - 1, len(self.theta_bins))
+            )  # create empty array to store results
         for i, tract in enumerate(self.tract_list):
             self._check_slurm_job(job_list[i])
-            result[i] = np.loadtxt(outpath + f"{tract}_density_ratio.txt")
+            if self.unique:
+                print("\nProcessing by star.\n")
+                if i == 0:
+                    with open(
+                        outpath + f"{tract}_density_ratio_unique.pickle", "rb"
+                    ) as f:
+                        result = pickle.load(f)
+                else:
+                    with open(
+                        outpath + f"{tract}_density_ratio_unique.pickle", "rb"
+                    ) as f:
+                        curr_result = pickle.load(f)
+                    result["ra"] = result["ra"] + curr_result["ra"]
+                    result["dec"] = result["dec"] + curr_result["dec"]
+                    result["density_ratio"] = (
+                        result["density_ratio"] + curr_result["density_ratio"]
+                    )
+            else:
+                result[i] = np.loadtxt(outpath + f"{tract}_density_ratio.txt")
+        cmd = f"cp {self.config_file} {outpath}\n"
+        res = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, check=True
+        )
         return result

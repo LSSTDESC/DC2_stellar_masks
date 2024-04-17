@@ -25,7 +25,7 @@ class OpenDC2:
         None
         """
         self.name = name
-        self.catalog = GCRCatalogs.load_catalog(name)
+        self.catalog = GCRCatalogs.load_catalog(self.name)
         return None
 
     def _flags(self, conditions=None):
@@ -41,7 +41,7 @@ class OpenDC2:
         list of strings
             conditions being applied in _query
         """
-        if conditions == None:
+        if conditions is None:
             print("Default flags selected")
             filters = [
                 "detect_isPrimary==True",
@@ -239,12 +239,22 @@ class OpenDC2:
             List containing each catalog's bins
         """
         binned_cat = []
-        for i in range(len(bins) - 1):
-            v_min = bins[i]
-            v_max = bins[i + 1]
-            binned_cat.append(
-                catalog[(catalog[quantities] > v_min) & (catalog[quantities] < v_max)]
+        try:
+            for i in range(len(bins) - 1):
+
+                v_min = float(bins[i])
+                v_max = float(bins[i + 1])
+                binned_cat.append(
+                    catalog[
+                        (catalog[quantities] > v_min) & (catalog[quantities] < v_max)
+                    ]
+                )
+        except KeyError:
+            print(
+                "Error: The specified column name 'quantities' does not exist in the catalog."
             )
+        except ValueError:
+            print("Error: Unable to convert bin values to float.")
         return binned_cat
 
     def galaxies_with_neighbours_tracts(
@@ -275,10 +285,33 @@ class OpenDC2:
         neighbour_tracts = Table.read(
             "/sps/lsst/groups/clusters/amico_validation_project/catalogs/DC2/dc2_neighbours.fits"
         )
-        neighbour_list = neighbour_tracts["list_of_neighbour_tiles"][
-            neighbour_tracts["tile"] == int(tract_list)
-        ][0].split(",")
+        if len(tract_list) > 1 and type(tract_list) == list:
+            neighbour_list = []
+            neighbour_list.append(
+                neighbour_tracts["list_of_neighbour_tiles"][
+                    neighbour_tracts["tile"] == int(tract_list[0])
+                ][0].split(",")
+            )
+            for i in range(len(tract_list) - 1):
+                neighbour_list.append(
+                    neighbour_tracts["list_of_neighbour_tiles"][
+                        neighbour_tracts["tile"] == int(tract_list[i + 1])
+                    ][0].split(",")
+                )
+                neighbour_list[i + 1] = neighbour_list[i] + list(
+                    set(neighbour_list[i + 1]) - set(neighbour_list[i])
+                )
+            neighbour_list = neighbour_list[-1]
+        elif type(tract_list) == list:
+            neighbour_list = neighbour_tracts["list_of_neighbour_tiles"][
+                neighbour_tracts["tile"] == int(tract_list[0])
+            ][0].split(",")
+        elif type(tract_list) == str or type(tract_list) == int:
+            neighbour_list = neighbour_tracts["list_of_neighbour_tiles"][
+                neighbour_tracts["tile"] == int(tract_list)
+            ][0].split(",")
         dc2_galaxies = self.galaxies(
             quantities, conditions, conditions1, tract_list=neighbour_list
         )
+
         return dc2_galaxies

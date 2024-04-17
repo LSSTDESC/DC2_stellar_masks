@@ -200,7 +200,8 @@ theta_bins:
 - 466.46520131423426
 - 482.94161205793483
 - 499.99999999999994
-tract_list: null
+tract_list: 
+- '3830'
 quantities:
 - ra
 - dec
@@ -218,17 +219,12 @@ conditions_stars:
 - nan.mag_i_cModel
 binned_quantity: mag_i_truth
 bins:
-- 0
 - 10
 - 11
 - 12
-- 13
-- 14
-- 15
-- 16
 density_ratio: null
 critical_density: 0.9
-outpath: /sps/lsst/users/namourou/web/clusters/DC2/bright_objects_masks/catalogs/full_dc2_masks_mag_i_truth_nanmean/
-unique_stars: false
+outpath: /sps/lsst/users/namourou/web/clusters/DC2/bright_objects_masks/catalogs/examples/
+unique_stars: true
 nside_coverage: 32
 nside_sparse: 131072
