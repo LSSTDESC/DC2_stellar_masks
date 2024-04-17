@@ -17,7 +17,7 @@ Here we use the results from 2) and the catalog from 1) to generate a healsparse
 ## Note:
 Future version of the module might allow one to perform masks on catalogs which are not in GCR
 
-##Requirements:
+## Requirements:
 Healsparse v1.9.0
 GCRCatalogs v1.4.0
 
