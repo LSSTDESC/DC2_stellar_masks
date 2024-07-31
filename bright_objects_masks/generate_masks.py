@@ -165,6 +165,23 @@ class Masks:
                     healsparse_masks |= circle
         return healsparse_masks
 
+    def generate_bit_masks(self, masks): #masks should be a dict of maps, max size =8
+        def set_bit(position):
+            return 1 << position
+        converted_masks = []
+        int_maps = [hsp.HealSparseMap.make_empty(self.nside_coverage, self.nside_sparse, np.int8, sentinel = 0) for i in range(len(masks.values()))]
+        for i, key in enumerate(masks.keys()):
+            valid_pixels = masks[key].valid_pixels
+            bool_values = masks[key].get_values_pix(valid_pixels)
+            byte = set_bit(i)
+            print(f"For {key} map, byte = {byte}.")
+            binary_value = np.where(bool_values, np.int8(byte), np.int8(0))
+            int_maps[i].update_values_pix(valid_pixels, binary_value)
+            converted_masks.append(int_maps[i])
+            print(converted_masks)
+        bit_masks = hsp.operations.sum_union(converted_masks)
+        return bit_masks
+
     def write_heaslparse_mask(self, healsparse_masks, outpath=None):
         """write_heaslparse_mask save created masks
 
