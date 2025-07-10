@@ -1,9 +1,10 @@
 import GCRCatalogs
 from GCRCatalogs.helpers.tract_catalogs import tract_filter  # , sample_filter
 from GCRCatalogs import GCRQuery
-from astropy.table import Table
+from astropy.table import Table, vstack
 from configparser import ConfigParser
 import sys
+from lsst.daf.butler import Butler
 
 """
 Errors gestion to be implemented.
@@ -12,7 +13,7 @@ Errors gestion to be implemented.
 
 class OpenDC2:
 
-    def __init__(self, name="dc2_object_run2.2i_dr6_v2_with_addons_v2"):
+    def __init__(self, name="dc2_object_run2.2i_dr6_v2_with_addons_v2", butler = None, collection = None):
         """__init__
 
         Parameters
@@ -24,8 +25,12 @@ class OpenDC2:
         -------
         None
         """
-        self.name = name
-        self.catalog = GCRCatalogs.load_catalog(self.name)
+        if butler is None:
+            self.name = name
+            self.catalog = GCRCatalogs.load_catalog(self.name)
+            self.butler = butler
+        else :
+            self.butler = Butler(butler, collections=collection)
         return None
 
     def _flags(self, conditions=None):
@@ -123,7 +128,7 @@ class OpenDC2:
         return filters
 
     def open_cat(
-        self, quantities=["ra", "dec", "mag_i_cModel"], conditions=None, tract_list=None
+        self, quantities=["ra", "dec", "mag_i_cModel"], conditions=None, tract_list=None, datasetType=None
     ):
         """open_cat use get_quantities method for the selected GCRcatalog
 
@@ -141,21 +146,48 @@ class OpenDC2:
         astropy Table
             Table of catalog objects with asked quantities
         """
-        if "None" in str(conditions) and len(str(conditions).split(",")) > 1:
-            filters = self._query()
-            conditions.pop(conditions.index("None"))
-            filters &= self._query(conditions=conditions)
-        else:
-            filters = self._query(conditions=conditions)
-        if tract_list is not None:
-            dc2 = self.catalog.get_quantities(
-                quantities, native_filters=[tract_filter(tract_list)], filters=filters
-            )
-            print(f"DC2 catalog loaded (tract = {tract_list}, with filters)")
-        else:
-            dc2 = self.catalog.get_quantities(quantities, filters=filters)
-            print("Full DC2 catalog loaded (with filters)")
-        return Table(dc2)  # Table format is better for future operations
+        if self.butler is None:
+            if "None" in str(conditions) and len(str(conditions).split(",")) > 1:
+                filters = self._query()
+                conditions.pop(conditions.index("None"))
+                filters &= self._query(conditions=conditions)
+            else:
+                filters = self._query(conditions=conditions)
+            if tract_list is not None:
+                dc2 = self.catalog.get_quantities(
+                    quantities, native_filters=[tract_filter(tract_list)], filters=filters
+                )
+                print(f"DC2 catalog loaded (tract = {tract_list}, with filters)")
+            else:
+                dc2 = self.catalog.get_quantities(quantities, filters=filters)
+                print("Full DC2 catalog loaded (with filters)")
+            return Table(dc2)
+        else :
+            if tract_list is not None:
+                registry = self.butler.registry
+                tract_cdt = ""
+                for tract in tract_list:
+                    tract_cdt += str(tract) + ","
+                tract_cdt = "(" + tract_cdt[:-1] + ")"
+                tract_query = " and tract in " + tract_cdt
+                datasets = list(registry.queryDatasets(datasetType, where=conditions + tract_query))
+                if datasetType == "the_monster_20250219":
+                    if len(datasets) > 1:
+                        dc2 = self.butler.get(datasets[0], parameters={"columns": quantities}).asAstropy()
+                        for i in range(len(datasets) - 1):
+                            dc2 = vstack([dc2, self.butler.get(datasets[i + 1], parameters={"columns": quantities}).asAstropy()])
+                    else:
+                        dc2 = self.butler.get(datasets[0], parameters={"columns": quantities}).asAstropy()
+                else :
+                    if len(datasets) > 1:
+                        dc2 = self.butler.get(datasets[0], parameters={"columns": quantities})
+                        for i in range(len(datasets) - 1):
+                            dc2 = vstack([dc2, self.butler.get(datasets[i + 1], parameters={"columns": quantities})])
+                    else:
+                        dc2 = self.butler.get(datasets[0], parameters={"columns": quantities})
+            else:
+                print("Error : tract_list must be specified when using butler")
+            return dc2
 
     def galaxies(
         self,
@@ -163,6 +195,7 @@ class OpenDC2:
         conditions=None,
         conditions1=["extendedness==1", "mag_i_cModel>17", "mag_i_cModel<25.3"],
         tract_list=None,
+        datasetType=None
     ):
         """get galaxies from the catalog
 
@@ -182,11 +215,44 @@ class OpenDC2:
         astropy Table
             Catalog of galaxies
         """
-        if conditions is None:
-            conditions = [str(conditions)]
-        dc2_galaxies = self.open_cat(
-            quantities, list(conditions) + list(conditions1), tract_list
-        )
+        if self.butler is not None:
+            if conditions is None:
+                print("No conditions specified, need to use at least one in butler configuration.")
+            else :
+                dc2_galaxies = self.open_cat(
+                    quantities, conditions, tract_list, datasetType=datasetType
+                )
+            if len(conditions1)==0:
+                print("No conditions1 specified, returning catalog with conditions only.")
+                return dc2_galaxies
+            else: #put a warning later around here
+                for condition in conditions1:
+                    parts = condition.split("==")
+                    if len(parts) == 2:
+                        column_name = parts[0]
+                        value = parts[1]
+                        if column_name in dc2_galaxies.colnames:
+                            dc2_galaxies = dc2_galaxies[dc2_galaxies[column_name] == value]
+
+                    elif ">" in condition:
+                        parts = condition.split(">")
+                        column_name = parts[0]
+                        value = float(parts[1])
+                        if column_name in dc2_galaxies.colnames:
+                            dc2_galaxies = dc2_galaxies[dc2_galaxies[column_name] > value]
+                
+                    elif "<" in condition:
+                        parts = condition.split("<")
+                        column_name = parts[0]
+                        value = float(parts[1])
+                        if column_name in dc2_galaxies.colnames:
+                            dc2_galaxies = dc2_galaxies[dc2_galaxies[column_name] < value]
+        else :
+            if conditions is None:
+                conditions = [str(conditions)]
+            dc2_galaxies = self.open_cat(
+                quantities, list(conditions) + list(conditions1), tract_list
+            )
         return dc2_galaxies
 
     def stars(
@@ -195,6 +261,7 @@ class OpenDC2:
         conditions=None,
         conditions1=["extendedness==0"],
         tract_list=None,
+        datasetType=None
     ):
         """Isolate stars from the 'cleaned' catalog
 
@@ -214,11 +281,42 @@ class OpenDC2:
         astropy Table
             Catalog of stars
         """
-        if conditions is None:
-            conditions = [str(conditions)]
-        dc2_stars = self.open_cat(
-            quantities, list(conditions) + list(conditions1), tract_list
-        )
+        if self.butler is not None:
+            if conditions is None:
+                dc2_stars = self.open_cat(
+                    quantities, conditions1, tract_list, datasetType=datasetType
+                )
+            if len(conditions1)==0:
+                print("No conditions1 specified, returning catalog with conditions only.")
+                return dc2_stars
+            else: #put a warning later around here
+                for condition in conditions1:
+                    parts = condition.split("==")
+                    if len(parts) == 2:
+                        column_name = parts[0]
+                        value = parts[1]
+                        if column_name in dc2_stars.colnames:
+                            dc2_stars = dc2_stars[dc2_stars[column_name] == value]
+
+                    elif ">" in condition:
+                        parts = condition.split(">")
+                        column_name = parts[0]
+                        value = float(parts[1])
+                        if column_name in dc2_stars.colnames:
+                            dc2_stars = dc2_stars[dc2_stars[column_name] > value]
+
+                    elif "<" in condition:
+                        parts = condition.split("<")
+                        column_name = parts[0]
+                        value = float(parts[1])
+                        if column_name in dc2_stars.colnames:
+                            dc2_stars = dc2_stars[dc2_stars[column_name] < value]
+        else :
+            if conditions is None:
+                conditions = [str(conditions)]
+            dc2_stars = self.open_cat(
+                quantities, list(conditions) + list(conditions1), tract_list
+            )
         return dc2_stars
 
     def bin_cat(self, catalog, quantities="mag_i_cModel", bins=[0, 17, 18, 20, 22, 24]):
@@ -263,6 +361,8 @@ class OpenDC2:
         conditions=None,
         conditions1=["extendedness==1", "mag_i_cModel>17", "mag_i_cModel<25.3"],
         tract_list=None,
+        neighbours_tracts_path = "/sps/lsst/groups/clusters/amico_validation_project/catalogs/DC2/dc2_neighbours.fits",
+        datasetType = None
     ):
         """galaxies_with_neighbours_tracts opens all neighbours tracts catalog (often galaxies) for a given tract or several tracts
 
@@ -283,7 +383,7 @@ class OpenDC2:
             Astropy Table containing selected tract + neighbours galaxies
         """
         neighbour_tracts = Table.read(
-            "/sps/lsst/groups/clusters/amico_validation_project/catalogs/DC2/dc2_neighbours.fits"
+            neighbours_tracts_path
         )
         if len(tract_list) > 1 and type(tract_list) == list:
             neighbour_list = []
@@ -311,7 +411,7 @@ class OpenDC2:
                 neighbour_tracts["tile"] == int(tract_list)
             ][0].split(",")
         dc2_galaxies = self.galaxies(
-            quantities, conditions, conditions1, tract_list=neighbour_list
+            quantities, conditions, conditions1, tract_list=neighbour_list, datasetType=datasetType
         )
 
         return dc2_galaxies
