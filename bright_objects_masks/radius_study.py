@@ -85,8 +85,8 @@ class Calculate_density:
             area of the tract [arcsec**2]
         """
         tract_galaxies = self.galaxies_tract
-        ra_galaxies, dec_galaxies = np.array(tract_galaxies["ra"]), np.array(
-            tract_galaxies["dec"]
+        ra_galaxies, dec_galaxies = np.array(tract_galaxies["coord_ra"]), np.array(
+            tract_galaxies["coord_dec"]
         )
         dec_min, dec_max = min(dec_galaxies), max(dec_galaxies)
         condition_B = (abs(dec_galaxies) >= abs(dec_min) - 0.2) & (
@@ -122,7 +122,7 @@ class Calculate_density:
             density of the tract [arcsec**(-2)]
         """
         tract_galaxies = self.galaxies_tract
-        galaxies_number = len(tract_galaxies["ra"])
+        galaxies_number = len(tract_galaxies["coord_ra"])
         tract_density = galaxies_number / self._surface_trapeze()
         return tract_density
 
@@ -131,30 +131,30 @@ class Calculate_density:
     ):
         density = np.zeros((len(self.stars), len(theta_bins)))
         print("in get_density_around_unique_star", self.stars)
-        print(self.stars["ra"])
-        print(len(self.stars["ra"]))
+        print(self.stars["coord_ra"])
+        print(len(self.stars["coord_ra"]))
         condition = np.array(
             [
                 (
-                    abs(self.galaxies_tract_neighbours["ra"] - self.stars["ra"][i])
+                    abs(self.galaxies_tract_neighbours["coord_ra"] - self.stars["coord_ra"][i])
                     * 3600
                     <= max(theta_bins)
                 )
                 | (
-                    abs(self.galaxies_tract_neighbours["dec"] - self.stars["dec"][i])
+                    abs(self.galaxies_tract_neighbours["coord_dec"] - self.stars["coord_dec"][i])
                     * 3600
                     <= max(theta_bins)
                 )
-                for i in range(len(self.stars["ra"]))
+                for i in range(len(self.stars["coord_ra"]))
             ]
         )
         for i, star in enumerate(self.stars):
             ra_galaxies, dec_galaxies = (
-                self.galaxies_tract_neighbours["ra"][condition[i]],
-                self.galaxies_tract_neighbours["dec"][condition[i]],
+                self.galaxies_tract_neighbours["coord_ra"][condition[i]],
+                self.galaxies_tract_neighbours["coord_dec"][condition[i]],
             )  # Restrain number of galaxies for which we compute distance
             distance = self._distance(
-                ra_galaxies, dec_galaxies, star["ra"], star["dec"]
+                ra_galaxies, dec_galaxies, star["coord_ra"], star["coord_dec"]
             )  # Distance between star and galaxies within ra or dec max theta
             number_galaxies = np.array(
                 [
@@ -162,7 +162,7 @@ class Calculate_density:
                     for j in range(len(theta_bins))
                 ]
             )  # Number of objects within distance theta
-            surface = self._surface_circle(theta=theta_bins, dec=star["dec"])
+            surface = self._surface_circle(theta=theta_bins, dec=star["coord_dec"])
             density[i] = (
                 number_galaxies / surface
             )  # true density for each theta_bin will then be density / len(stars)
@@ -187,26 +187,26 @@ class Calculate_density:
         condition = np.array(
             [
                 (
-                    abs(self.galaxies_tract_neighbours["ra"] - self.stars["ra"][i])
+                    abs(self.galaxies_tract_neighbours["coord_ra"] - self.stars["coord_ra"][i])
                     * 3600
                     <= max(theta_bins)
                 )
                 | (
-                    abs(self.galaxies_tract_neighbours["dec"] - self.stars["dec"][i])
+                    abs(self.galaxies_tract_neighbours["coord_dec"] - self.stars["coord_dec"][i])
                     * 3600
                     <= max(theta_bins)
                 )
-                for i in range(len(self.stars["ra"]))
+                for i in range(len(self.stars["coord_ra"]))
             ]
         )
         sum_density = 0
         for i, star in enumerate(self.stars):
             ra_galaxies, dec_galaxies = (
-                self.galaxies_tract_neighbours["ra"][condition[i]],
-                self.galaxies_tract_neighbours["dec"][condition[i]],
+                self.galaxies_tract_neighbours["coord_ra"][condition[i]],
+                self.galaxies_tract_neighbours["coord_dec"][condition[i]],
             )  # Restrain number of galaxies for which we compute distance
             distance = self._distance(
-                ra_galaxies, dec_galaxies, star["ra"], star["dec"]
+                ra_galaxies, dec_galaxies, star["coord_ra"], star["coord_dec"]
             )  # Distance between star and galaxies within ra or dec max theta
             number_galaxies = np.array(
                 [
@@ -214,11 +214,11 @@ class Calculate_density:
                     for j in range(len(theta_bins))
                 ]
             )  # Number of objects within distance theta
-            surface = self._surface_circle(theta=theta_bins, dec=star["dec"])
+            surface = self._surface_circle(theta=theta_bins, dec=star["coord_dec"])
             sum_density += (
                 number_galaxies / surface
             )  # true density for each theta_bin will then be density / len(stars)
-        number_stars = len(self.stars["ra"])
+        number_stars = len(self.stars["coord_ra"])
         if number_stars != 0:
             density = sum_density / number_stars  # Mean density over stars
         else:
@@ -269,11 +269,23 @@ class Critical_radius:
         with open(self.config_file, "r") as f:
             output = yaml.safe_load(f)
         self.name = output.get("name")
-        self.openDC2 = call_dc2.OpenDC2(name=self.name)
+        self.butler_stars = output.get("butler_stars")
+        self.butler_galaxies = output.get("butler_galaxies")
+        self.collection_stars = output.get("collection_stars")
+        self.collection_galaxies = output.get("collection_galaxies")
+        print(self.butler_stars, self.collection_stars, self.butler_galaxies, self.collection_galaxies)
+        if self.butler_stars is not None and self.butler_galaxies is not None:
+            print("Using butler for stars and galaxies")
+            self.openDC2_stars = call_dc2.OpenDC2(butler=self.butler_stars, collection=self.collection_stars)
+            self.openDC2_galaxies = call_dc2.OpenDC2(butler=self.butler_galaxies, collection=self.collection_galaxies)
+        else:
+            self.openDC2_stars = call_dc2.OpenDC2(name=self.name)
+            self.openDC2_galaxies = call_dc2.OpenDC2(name=self.name)#they are the same catalog here
         self.theta_bins = np.array(output.get("theta_bins"))
         # self.large_theta_bins = np.array(output.get("large_theta_bins"))
         tract_list = output.get("tract_list")
-        self.quantities = output.get("quantities")
+        self.quantities_stars = output.get("quantities_stars")
+        self.quantities_galaxies = output.get("quantities_galaxies")
         self.conditions = output.get("conditions")
         self.conditions_galaxies = output.get("conditions_galaxies")
         self.conditions_stars = output.get("conditions_stars")
@@ -282,159 +294,7 @@ class Critical_radius:
         self.conditions_unique_stars = output.get("conditions_unique_stars")
         self.outpath = output.get("outpath")
         if tract_list is None:
-            self.tract_list = [
-                5074,
-                5073,
-                5072,
-                5071,
-                5070,
-                5069,
-                5068,
-                5067,
-                5066,
-                5065,
-                4860,
-                4859,
-                4858,
-                4857,
-                4856,
-                4855,
-                4854,
-                4853,
-                4852,
-                4851,
-                4850,
-                4648,
-                4647,
-                4646,
-                4645,
-                4644,
-                4643,
-                4642,
-                4641,
-                4640,
-                4639,
-                4638,
-                4637,
-                4636,
-                4441,
-                4440,
-                4439,
-                4438,
-                4437,
-                4436,
-                4435,
-                4434,
-                4433,
-                4432,
-                4431,
-                4430,
-                4429,
-                4236,
-                4235,
-                4234,
-                4233,
-                4232,
-                4231,
-                4230,
-                4229,
-                4228,
-                4227,
-                4226,
-                4225,
-                4224,
-                4035,
-                4034,
-                4033,
-                4032,
-                4031,
-                4030,
-                4029,
-                4028,
-                4027,
-                4026,
-                4025,
-                4024,
-                4023,
-                3837,
-                3836,
-                3835,
-                3834,
-                3833,
-                3832,
-                3831,
-                3830,
-                3829,
-                3828,
-                3827,
-                3826,
-                3825,
-                3643,
-                3642,
-                3641,
-                3640,
-                3639,
-                3638,
-                3637,
-                3636,
-                3635,
-                3634,
-                3633,
-                3632,
-                3631,
-                3453,
-                3452,
-                3451,
-                3450,
-                3449,
-                3448,
-                3447,
-                3446,
-                3445,
-                3444,
-                3443,
-                3442,
-                3441,
-                3268,
-                3267,
-                3266,
-                3265,
-                3264,
-                3263,
-                3262,
-                3261,
-                3260,
-                3259,
-                3258,
-                3257,
-                3256,
-                3086,
-                3085,
-                3084,
-                3083,
-                3082,
-                3081,
-                3080,
-                3079,
-                3078,
-                3077,
-                3076,
-                3075,
-                3074,
-                2908,
-                2907,
-                2906,
-                2905,
-                2904,
-                2903,
-                2902,
-                2901,
-                2900,
-                2899,
-                2898,
-                2897,
-                2896,
-            ]
+            self.tract_list = np.loadtxt(os.path.dirname(__file__) + "/../config/dc2_tract_list.txt")
         else:
             self.tract_list = tract_list
 
@@ -470,18 +330,34 @@ class Critical_radius:
         print(
             f"\nOpening catalogs in Critical_radius class. Selected config is bins={bins} over {self.binned_quantity}, conditions={conditions},conditions_galaxies={conditions_galaxies}, conditions_stars={conditions_stars}, compute_galaxies={compute_galaxies},compute_stars={compute_stars}.\n"
         )
-        if compute_galaxies:
-            galaxies = self.openDC2.galaxies(
-                quantities=self.quantities,
-                conditions=conditions,
-                conditions1=conditions_galaxies,
-                tract_list=tract,
+        if self.butler_stars is not None:
+            print(
+                f"Using butler={self.butler_stars} and collection={self.collection_stars} for stars."
             )
-            galaxies_neighbour = self.openDC2.galaxies_with_neighbours_tracts(
-                quantities=self.quantities,
+            datasetType_stars = "the_monster_20250219"
+        if self.butler_galaxies is not None:
+            print(
+                f"Using butler={self.butler_galaxies} and collection={self.collection_galaxies} for galaxies."
+            )  
+            datasetType_galaxies = "object"
+        else:  
+            print(f"Using name={self.name} for galaxies.")
+            datasetType_stars = None
+            datasetType_galaxies = None
+        if compute_galaxies:
+            galaxies = self.openDC2_galaxies.galaxies(
+                quantities=self.quantities_galaxies,
                 conditions=conditions,
                 conditions1=conditions_galaxies,
                 tract_list=tract,
+                datasetType=datasetType_galaxies
+            )
+            galaxies_neighbour = self.openDC2_galaxies.galaxies_with_neighbours_tracts(
+                quantities=self.quantities_galaxies,
+                conditions=conditions,
+                conditions1=conditions_galaxies,
+                tract_list=tract,
+                datasetType=datasetType_galaxies
             )
             print(
                 f"\nGalaxies :\n{galaxies[:5]},\n lenght={len(galaxies)};\nGalaxies_neighbour :\n{galaxies_neighbour[:5]},\n lenght={len(galaxies_neighbour)}.\n"
@@ -489,17 +365,18 @@ class Critical_radius:
             catalogs.append(galaxies)
             catalogs.append(galaxies_neighbour)
         if compute_stars:
-            stars = self.openDC2.stars(
-                quantities=self.quantities,
+            stars = self.openDC2_stars.stars(
+                quantities=self.quantities_stars,
                 conditions=conditions,
                 conditions1=conditions_stars,
                 tract_list=tract,
+                datasetType=datasetType_stars,
             )
             if cdt_nan:
                 stars = stars[np.isnan(stars[f"{var_nan}"])]
             if len(bins) > 1:
                 print(f"There are {len(bins)-1} bins for stars.")
-                stars = self.openDC2.bin_cat(
+                stars = self.openDC2_stars.bin_cat(
                     stars, quantities=self.binned_quantity, bins=bins
                 )
             print(f"\nStars :\n {stars},\n lenght={len(stars)}.\n")
@@ -517,7 +394,7 @@ class Critical_radius:
             density_tracts[i] += compute_density_.get_density_around_stars(
                 theta_bins=self.theta_bins
             )
-        number_galaxies += len(galaxies["ra"])
+        number_galaxies += len(galaxies["coord_ra"])
         tract_density += compute_density_._tract_density()
         density = density_tracts
         density_dc2 = tract_density
@@ -633,8 +510,8 @@ class Critical_radius:
                 density_dc2 = tract_density
                 density_ratio = density / density_dc2
                 density_brighter.append(density_ratio)
-                ra.append(stars_bin["ra"])
-                dec.append(stars_bin["dec"])
+                ra.append(stars_bin["coord_ra"])
+                dec.append(stars_bin["coord_dec"])
         else:
             stars_bin = stars
             density_brighter_bin = np.zeros((len(stars_bin), len(self.theta_bins)))
@@ -649,8 +526,8 @@ class Critical_radius:
             density_dc2 = tract_density
             density_ratio = density / density_dc2
             density_brighter.append(density_ratio)
-            ra.append(stars_bin["ra"])
-            dec.append(stars_bin["dec"])
+            ra.append(stars_bin["coord_ra"])
+            dec.append(stars_bin["coord_dec"])
         return ra, dec, density_brighter
 
     def get_unique_density_ratio(self):
@@ -661,8 +538,8 @@ class Critical_radius:
             mpc = Multiprocessing(tract_list=self.tract_list, unique=True)
             density_ratios_table = mpc.slurm_submit(outpath=self.outpath)
             ra, dec, density_ratio = (
-                density_ratios_table["ra"],
-                density_ratios_table["dec"],
+                density_ratios_table["coord_ra"],
+                density_ratios_table["coord_dec"],
                 density_ratios_table["density_ratio"],
             )
         else:

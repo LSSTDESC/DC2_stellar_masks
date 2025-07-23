@@ -25,10 +25,10 @@ class OpenDC2:
         -------
         None
         """
+        self.butler = butler
         if butler is None:
             self.name = name
             self.catalog = GCRCatalogs.load_catalog(self.name)
-            self.butler = butler
         else :
             self.butler = Butler(butler, collections=collection)
         return None
@@ -163,28 +163,55 @@ class OpenDC2:
                 print("Full DC2 catalog loaded (with filters)")
             return Table(dc2)
         else :
+            print("Using butler to load the catalog.")
             if tract_list is not None:
                 registry = self.butler.registry
-                tract_cdt = ""
-                for tract in tract_list:
-                    tract_cdt += str(tract) + ","
-                tract_cdt = "(" + tract_cdt[:-1] + ")"
-                tract_query = " and tract in " + tract_cdt
-                datasets = list(registry.queryDatasets(datasetType, where=conditions + tract_query))
                 if datasetType == "the_monster_20250219":
-                    if len(datasets) > 1:
-                        dc2 = self.butler.get(datasets[0], parameters={"columns": quantities}).asAstropy()
-                        for i in range(len(datasets) - 1):
-                            dc2 = vstack([dc2, self.butler.get(datasets[i + 1], parameters={"columns": quantities}).asAstropy()])
+                    tract_cdt = ""
+                    for tract in tract_list:
+                        tract_cdt += str(tract) + ","
+                    tract_cdt = "(" + tract_cdt[:-1] + ")"
+                    tract_query = " and tract in " + tract_cdt
+                    if conditions is None or len(conditions)==0:
+                        tract_query = "tract in " + tract_cdt
+                        datasets= list(registry.queryDatasets(datasetType, where=tract_query))
                     else:
-                        dc2 = self.butler.get(datasets[0], parameters={"columns": quantities}).asAstropy()
+                        tract_query = " and tract in " + tract_cdt
+                        datasets = list(registry.queryDatasets(datasetType, where=conditions + tract_query))
+                    if len(datasets) > 1:
+                        dc2 = self.butler.get(datasets[0]).asAstropy()
+                        for i in range(len(datasets) - 1):
+                            dc2 = vstack([dc2, self.butler.get(datasets[i + 1]).asAstropy()])
+                    elif len(datasets) == 1:
+                        dc2 = self.butler.get(datasets[0]).asAstropy()
+                    else:
+                        print("No datasets found for the given conditions and tract_list.")
+                        print("query :", conditions + tract_query)
+                        return None
+                    if len(dc2)>1:
+                        dc2 = dc2[quantities]
                 else :
+                    tract_cdt = ""
+                    for tract in tract_list:
+                        tract_cdt += str(tract) + ","
+                    tract_cdt = "(" + tract_cdt[:-1] + ")"
+                    tract_query = " and tract in " + tract_cdt
+                    if conditions is None or len(conditions)==0:
+                        tract_query = "tract in " + tract_cdt
+                        datasets= list(registry.queryDatasets(datasetType, where=tract_query))
+                    else:
+                        tract_query = " and tract in " + tract_cdt
+                        datasets = list(registry.queryDatasets(datasetType, where=conditions + tract_query))
                     if len(datasets) > 1:
                         dc2 = self.butler.get(datasets[0], parameters={"columns": quantities})
                         for i in range(len(datasets) - 1):
                             dc2 = vstack([dc2, self.butler.get(datasets[i + 1], parameters={"columns": quantities})])
-                    else:
+                    elif len(datasets) == 1:
                         dc2 = self.butler.get(datasets[0], parameters={"columns": quantities})
+                    else:
+                        print("No datasets found for the given conditions and tract_list.")
+                        print("query :", conditions + tract_query)
+                        return None
             else:
                 print("Error : tract_list must be specified when using butler")
             return dc2
@@ -217,7 +244,10 @@ class OpenDC2:
         """
         if self.butler is not None:
             if conditions is None:
-                print("No conditions specified, need to use at least one in butler configuration.")
+                print("Attendtion no general conditions specified.")
+                dc2_galaxies = self.open_cat(
+                    quantities, conditions, tract_list, datasetType=datasetType
+                )
             else :
                 dc2_galaxies = self.open_cat(
                     quantities, conditions, tract_list, datasetType=datasetType
@@ -282,9 +312,13 @@ class OpenDC2:
             Catalog of stars
         """
         if self.butler is not None:
-            if conditions is None:
+            if conditions is None or len(conditions)==0:
                 dc2_stars = self.open_cat(
-                    quantities, conditions1, tract_list, datasetType=datasetType
+                    quantities, conditions, tract_list, datasetType=datasetType
+                )
+            else : 
+                dc2_stars = self.open_cat(
+                    quantities, conditions, tract_list, datasetType=datasetType
                 )
             if len(conditions1)==0:
                 print("No conditions1 specified, returning catalog with conditions only.")
@@ -361,7 +395,7 @@ class OpenDC2:
         conditions=None,
         conditions1=["extendedness==1", "mag_i_cModel>17", "mag_i_cModel<25.3"],
         tract_list=None,
-        neighbours_tracts_path = "/sps/lsst/groups/clusters/amico_validation_project/catalogs/DC2/dc2_neighbours.fits",
+        neighbours_tracts_path = "/home/a/amouroux/rubin-user/bo_masks_dp1/A360_tiles.fits",
         datasetType = None
     ):
         """galaxies_with_neighbours_tracts opens all neighbours tracts catalog (often galaxies) for a given tract or several tracts
@@ -383,7 +417,7 @@ class OpenDC2:
             Astropy Table containing selected tract + neighbours galaxies
         """
         neighbour_tracts = Table.read(
-            neighbours_tracts_path
+            "/home/a/amouroux/rubin-user/bo_masks_dp1/A360_tiles.fits"
         )
         if len(tract_list) > 1 and type(tract_list) == list:
             neighbour_list = []
